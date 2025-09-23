@@ -7,7 +7,6 @@ import storage
 from adafruit_st7735r import ST7735R
 import ulab
 
-
 # SD card pins
 sd_mosi_pin = board.GP19
 sd_miso_pin = board.GP16
@@ -73,7 +72,6 @@ cam = OV7670(
 )
 cam.size =  cam_size
 cam.flip_y = True
-
 def create_palette(bm):
     colors = []
     for x in range(bm.width):
@@ -92,9 +90,10 @@ while True:
     cam.capture(camera_image)
     camera_image.dirty()
     display.refresh(minimum_frames_per_second=0)
-    palette = create_palette(camera_image)
+    # palette = create_palette(camera_image)
+    #TODO: write custom function to convert bitmap to jpg
     buffer = ulab.numpy.frombuffer(camera_image)
-    #TODO: write custom function to save bitmap
-    # with open(capture_file.format(img_idx), "wb") as fh:
-    #     fh.write(buffer)
+    with open(capture_file.format(img_idx), "wb") as fh:
+        fh.write(buffer)
+    print("Saved Image {}".format(img_idx))
     img_idx += 1    
