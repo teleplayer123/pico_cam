@@ -5,6 +5,7 @@ from adafruit_ov7670 import OV7670
 import sdcardio
 import storage
 from adafruit_st7735r import ST7735R
+import ulab
 
 
 # SD card pins
@@ -38,13 +39,10 @@ display.root_group.append(group)
 cam_width = 80
 cam_height = 60
 cam_size = 3 #80x60 resolution
-
 camera_image = displayio.Bitmap(cam_width, cam_height, 65536)
 camera_image_tile = displayio.TileGrid(
     camera_image ,
-    pixel_shader=displayio.ColorConverter(
-        input_colorspace=displayio.Colorspace.RGB565_SWAPPED
-    ),
+    pixel_shader=displayio.ColorConverter(input_colorspace=displayio.Colorspace.RGB565_SWAPPED),
     x=0,
     y=0,
 )
@@ -76,14 +74,27 @@ cam = OV7670(
 cam.size =  cam_size
 cam.flip_y = True
 
+def create_palette(bm):
+    colors = []
+    for x in range(bm.width):
+        for y in range(bm.height):
+            # The color value is the pixel value at (x, y)
+            color_value = bm[x, y]
+            colors.append(color_value)
+    palette = displayio.Palette(len(colors))
+    for i, color in enumerate(colors):
+        palette[i] = color
+    return palette
+
 display.auto_refresh = False
 img_idx = 0
 while True:
     cam.capture(camera_image)
     camera_image.dirty()
     display.refresh(minimum_frames_per_second=0)
-    with open(capture_file.format(img_idx), "wb") as fh:
-        fh.write(camera_image)
-    img_idx += 1
-
-
+    palette = create_palette(camera_image)
+    buffer = ulab.numpy.frombuffer(camera_image)
+    #TODO: write custom function to save bitmap
+    # with open(capture_file.format(img_idx), "wb") as fh:
+    #     fh.write(buffer)
+    img_idx += 1    
