@@ -5,6 +5,7 @@ from adafruit_ov7670 import OV7670
 import sdcardio
 import storage
 from adafruit_st7735r import ST7735R
+from adafruit_bitmapsaver import save_pixels
 import ulab
 import struct
 import gc
@@ -41,9 +42,10 @@ cam_width = 80
 cam_height = 60
 cam_size = 3 #80x60 resolution
 camera_image = displayio.Bitmap(cam_width, cam_height, 65536)
+shader = displayio.ColorConverter(input_colorspace=displayio.Colorspace.RGB565_SWAPPED)
 camera_image_tile = displayio.TileGrid(
-    camera_image ,
-    pixel_shader=displayio.ColorConverter(input_colorspace=displayio.Colorspace.RGB565_SWAPPED),
+    camera_image,
+    pixel_shader=shader,
     x=0,
     y=0,
 )
@@ -127,13 +129,21 @@ display.auto_refresh = False
 img_idx = 0
 while True:
     cam.capture(camera_image)
-    camera_image.dirty()
-    display.refresh(minimum_frames_per_second=0)
-    w = camera_image.width
-    h = camera_image.height
-    data = convert_bitmap(camera_image)
     filename = capture_file.format(img_idx)
-    save_as_bmp(filename, w, h, data)
-    print("Saved Image {}".format(img_idx))
+    save_pixels(filename, camera_image, shader)
     img_idx += 1
+    print("Saved Image {}".format(img_idx))
     gc.collect()
+
+# while True:
+#     cam.capture(camera_image)
+#     camera_image.dirty()
+#     display.refresh(minimum_frames_per_second=0)
+#     w = camera_image.width
+#     h = camera_image.height
+#     data = convert_bitmap(camera_image)
+#     filename = capture_file.format(img_idx)
+#     save_as_bmp(filename, w, h, data)
+#     print("Saved Image {}".format(img_idx))
+#     img_idx += 1
+#     gc.collect()
