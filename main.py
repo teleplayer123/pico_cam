@@ -7,6 +7,7 @@ import storage
 from adafruit_st7735r import ST7735R
 import ulab
 import struct
+import gc
 
 # SD card pins
 sd_mosi_pin = board.GP19
@@ -14,7 +15,7 @@ sd_miso_pin = board.GP16
 clk_pin = board.GP18
 sd_cs_pin = board.GP17
 
-capture_file = "/sd/frame{}.jpg"
+capture_file = "/sd/frame{}.bmp"
 
 # Setup sd card 
 spi = busio.SPI(clk_pin, MOSI=sd_mosi_pin, MISO=sd_miso_pin)
@@ -74,33 +75,53 @@ cam = OV7670(
 cam.size =  cam_size
 cam.flip_y = True
 
-def create_palette(bm):
-    colors = []
-    for x in range(bm.width):
-        for y in range(bm.height):
+def rbg565_to_bgr(color):
+    blue = (color << 3) & 0x00F8
+    green = (color >> 3) & 0x00FC
+    red = (color >> 8) & 0x00F8
+    return [red, green, blue]
+
+def convert_bitmap(bm):
+    colors = ulab.numpy.zeros(bm.width * bm.height * 3, dtype=ulab.numpy.uint8)
+    width = bm.width
+    height = bm.height
+    for x in range(width):
+        for y in range(height):
             # The color value is the pixel value at (x, y)
             color_value = bm[x, y]
-            colors.append(color_value)
-    palette = displayio.Palette(len(colors))
-    for i, color in enumerate(colors):
-        palette[i] = color
-    return palette
+            colors[y * width + x] = rbg565_to_bgr(color_value)
+    return colors
 
-def save_as_bmp(filename, width, height, pixel_data):
-    with open(filename, 'wb') as fh:
-        # BMP Header
-        fh.write(b'BM')
-        file_size = 54 + len(pixel_data)
-        fh.write(struct.pack('<IHHI', file_size, 0, 0, 54))
-        
-        # DIB Header
-        fh.write(struct.pack('<IiiHHIIiiII',
-            40, width, height, 1, 24, 0,
-            len(pixel_data), 2835, 2835, 0, 0
-        ))
-        
-        # Pixel Data (BGR format)
-        fh.write(pixel_data)
+def save_as_bmp(filename, width, height, rgb_data):
+    # Each row must be padded to a multiple of 4 bytes
+    row_size = (width * 3 + 3) & ~3
+    padding = row_size - width * 3
+    pixel_array = b''
+
+    # BMP stores pixels bottom-up, so we reverse the rows
+    for y in range(height - 1, -1, -1):
+        row = b''
+        for x in range(width):
+            i = (y * width + x) * 3
+            r, g, b = rgb_data[i:i+3]
+            row += bytes([b, g, r])  # BMP uses BGR
+        row += b'\x00' * padding
+        pixel_array += row
+
+    # File header (14 bytes)
+    file_size = 14 + 40 + len(pixel_array)
+    bmp_header = b'BM' + struct.pack('<IHHI', file_size, 0, 0, 54)
+
+    # DIB header (40 bytes)
+    dib_header = struct.pack('<IIIHHIIIIII',
+        40, width, height, 1, 24, 0,
+        len(pixel_array), 2835, 2835, 0, 0
+    )
+
+    with open(filename, 'wb') as f:
+        f.write(bmp_header)
+        f.write(dib_header)
+        f.write(pixel_array)
 
 display.auto_refresh = False
 img_idx = 0
@@ -108,9 +129,11 @@ while True:
     cam.capture(camera_image)
     camera_image.dirty()
     display.refresh(minimum_frames_per_second=0)
-    # palette = create_palette(camera_image)
-    # buffer = ulab.numpy.frombuffer(camera_image)
+    w = camera_image.width
+    h = camera_image.height
+    data = convert_bitmap(camera_image)
     filename = capture_file.format(img_idx)
-    save_as_bmp(filename, camera_image.width, camera_image.height, camera_image)
+    save_as_bmp(filename, w, h, data)
     print("Saved Image {}".format(img_idx))
-    img_idx += 1    
+    img_idx += 1
+    gc.collect()
