@@ -6,7 +6,50 @@ import sdcardio
 import storage
 from adafruit_st7735r import ST7735R
 import struct
+import time
 
+
+# Helper Functions
+
+def save_bmp_from_bitmap(
+    filename,
+    bitmap
+):
+    width = bitmap.width
+    height = bitmap.height
+    row_raw = width * 2
+    row_padded = (row_raw + 3) & ~3
+    pixel_data_size = row_padded * height
+    header_size = 14 + 40 + 12
+    file_size = header_size + pixel_data_size
+
+    with open(filename, "wb") as f:
+        # BMP HEADER
+        f.write(b"BM")
+        f.write(struct.pack("<IHHI",
+            file_size, 0, 0, header_size
+        ))
+
+        # DIB HEADER
+        f.write(struct.pack("<IIIHHIIIIII",
+            40, width, height, 1, 16, 3,
+            pixel_data_size, 2835, 2835, 0, 0
+        ))
+
+        # RGB565 MASKS
+        f.write(struct.pack("<III",
+            0xF800, 0x07E0, 0x001F
+        ))
+
+        # PIXELS (bottom-up)
+        for y in range(height - 1, -1, -1):
+            for x in range(width):
+                pixel = bitmap[x, y]   # 0–65535
+                f.write(bytes((
+                    pixel & 0xFF,
+                    (pixel >> 8) & 0xFF
+                )))
+            f.write(b"\x00" * (row_padded - row_raw))
 
 # SD card pins
 sd_mosi_pin = board.GP19
@@ -18,7 +61,7 @@ capture_file = "/sd/frame{}.bmp"
 
 # Setup sd card 
 spi = busio.SPI(clk_pin, MOSI=sd_mosi_pin, MISO=sd_miso_pin)
-sdcard = sdcardio.SDCard(spi, sd_cs_pin)
+sdcard = sdcardio.SDCard(spi, sd_cs_pin, baudrate=1000000)
 vfs = storage.VfsFat(sdcard)
 storage.mount(vfs, "/sd")
 
@@ -77,51 +120,14 @@ cam = OV7670(
 cam.size =  cam_size
 cam.flip_y = True
 
-def save_bmp_rgb565(filename, width, height, framebuf):
-    row_size = (width * 2 + 3) & ~3
-    pixel_array_size = row_size * height
-    header_size = 14 + 40 + 12
-    file_size = header_size + pixel_array_size
-    with open(filename, "wb") as f:
-        # BMP HEADER
-        f.write(b'BM')
-        f.write(struct.pack('<IHHI', file_size, 0, 0, header_size))
-        # DIB HEADER (BITMAPINFOHEADER) 
-        f.write(struct.pack('<IIIHHIIIIII',
-            40,
-            width,
-            height,
-            1,
-            16,
-            3,                 # BI_BITFIELDS
-            pixel_array_size,
-            2835,
-            2835,
-            0,
-            0
-        ))
-        # COLOR MASKS
-        f.write(struct.pack('<III',
-            0xF800,  # Red
-            0x07E0,  # Green
-            0x001F   # Blue
-        ))
-        # PIXEL DATA (BOTTOM-UP)
-        for y in range(height - 1, -1, -1):
-            row_start = y * width * 2
-            row = framebuf[row_start:row_start + width * 2]
-            f.write(row)
-            f.write(b'\x00' * (row_size - width * 2))    
-
-display.auto_refresh = False
+#display.auto_refresh = False
 img_idx = 0
 while True:
     cam.capture(camera_image)
+    time.sleep(0.5)
     camera_image.dirty()
-    display.refresh(minimum_frames_per_second=0)
-    save_bmp_rgb565(capture_file.format(img_idx), cam.width, cam.height, cam.buffer)
+    save_bmp_from_bitmap(capture_file.format(img_idx), camera_image)
     # with open(capture_file.format(img_idx), "wb") as fh:
     #     fh.write(camera_image)
     img_idx += 1
-
-
+    display.refresh()
