@@ -5,6 +5,7 @@ from adafruit_ov7670 import OV7670
 import sdcardio
 import storage
 from adafruit_st7735r import ST7735R
+import struct
 
 
 # SD card pins
@@ -13,7 +14,7 @@ sd_miso_pin = board.GP16
 clk_pin = board.GP18
 sd_cs_pin = board.GP17
 
-capture_file = "/sd/frame{}.jpg"
+capture_file = "/sd/frame{}.bmp"
 
 # Setup sd card 
 spi = busio.SPI(clk_pin, MOSI=sd_mosi_pin, MISO=sd_miso_pin)
@@ -76,14 +77,51 @@ cam = OV7670(
 cam.size =  cam_size
 cam.flip_y = True
 
+def save_bmp_rgb565(filename, width, height, framebuf):
+    row_size = (width * 2 + 3) & ~3
+    pixel_array_size = row_size * height
+    header_size = 14 + 40 + 12
+    file_size = header_size + pixel_array_size
+    with open(filename, "wb") as f:
+        # BMP HEADER
+        f.write(b'BM')
+        f.write(struct.pack('<IHHI', file_size, 0, 0, header_size))
+        # DIB HEADER (BITMAPINFOHEADER) 
+        f.write(struct.pack('<IIIHHIIIIII',
+            40,
+            width,
+            height,
+            1,
+            16,
+            3,                 # BI_BITFIELDS
+            pixel_array_size,
+            2835,
+            2835,
+            0,
+            0
+        ))
+        # COLOR MASKS
+        f.write(struct.pack('<III',
+            0xF800,  # Red
+            0x07E0,  # Green
+            0x001F   # Blue
+        ))
+        # PIXEL DATA (BOTTOM-UP)
+        for y in range(height - 1, -1, -1):
+            row_start = y * width * 2
+            row = framebuf[row_start:row_start + width * 2]
+            f.write(row)
+            f.write(b'\x00' * (row_size - width * 2))    
+
 display.auto_refresh = False
 img_idx = 0
 while True:
     cam.capture(camera_image)
     camera_image.dirty()
     display.refresh(minimum_frames_per_second=0)
-    with open(capture_file.format(img_idx), "wb") as fh:
-        fh.write(camera_image)
+    save_bmp_rgb565(capture_file.format(img_idx), cam.width, cam.height, cam.buffer)
+    # with open(capture_file.format(img_idx), "wb") as fh:
+    #     fh.write(camera_image)
     img_idx += 1
 
 
